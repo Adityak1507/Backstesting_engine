@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Dict, Mapping, Optional, Union
 
+import numpy as np
 import pandas as pd
 
 from .broker import Broker, CostModel
@@ -61,6 +62,60 @@ class BacktestResult:
             fig.savefig(path, dpi=120)
         return fig
 
+    def plot_interactive(self, path: Optional[str] = None, title: str = "Backtest"):
+        """Interactive equity, trade-marker and drawdown chart. Requires plotly.
+
+        Returns a plotly Figure; if `path` is given, also writes a standalone HTML file.
+        """
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+
+        fig = make_subplots(
+            rows=2, cols=1, shared_xaxes=True, row_heights=[0.72, 0.28], vertical_spacing=0.04
+        )
+        fig.add_trace(go.Scatter(x=self.equity.index, y=self.equity, name="Strategy"), row=1, col=1)
+        if self.benchmark is not None:
+            fig.add_trace(
+                go.Scatter(x=self.benchmark.index, y=self.benchmark, name="Buy & hold", opacity=0.6),
+                row=1, col=1,
+            )
+        if not self.fills.empty:
+            for side, mask, symbol, color in (
+                ("Buy", self.fills["quantity"] > 0, "triangle-up", "#2ca02c"),
+                ("Sell", self.fills["quantity"] < 0, "triangle-down", "#d62728"),
+            ):
+                f = self.fills[mask]
+                if f.empty:
+                    continue
+                fig.add_trace(
+                    go.Scatter(
+                        x=f["timestamp"],
+                        y=self.equity.reindex(f["timestamp"]).to_numpy(),
+                        mode="markers",
+                        name=side,
+                        marker=dict(symbol=symbol, size=10, color=color),
+                        customdata=f[["symbol", "quantity", "price"]].to_numpy(),
+                        hovertemplate=(
+                            f"{side} %{{customdata[0]}}<br>qty %{{customdata[1]:,.0f}}"
+                            " @ %{customdata[2]:,.2f}<extra></extra>"
+                        ),
+                    ),
+                    row=1, col=1,
+                )
+        fig.add_trace(
+            go.Scatter(
+                x=self.drawdown.index, y=self.drawdown * 100, name="Drawdown %",
+                fill="tozeroy", line=dict(color="#d62728"), showlegend=False,
+            ),
+            row=2, col=1,
+        )
+        fig.update_yaxes(title_text="Equity", row=1, col=1)
+        fig.update_yaxes(title_text="Drawdown %", row=2, col=1)
+        fig.update_layout(title=title, hovermode="x unified", height=650, legend=dict(orientation="h", y=1.06))
+        if path:
+            fig.write_html(path, include_plotlyjs="cdn")
+        return fig
+
 
 class Backtest:
     """Run a strategy over historical bars.
@@ -110,6 +165,12 @@ class Backtest:
         self._has_bar = {sym: df["close"].reindex(index).notna() for sym, df in frames.items()}
         self.data: Dict[str, pd.DataFrame] = {sym: df.reindex(index).ffill() for sym, df in frames.items()}
         self.index = index
+        # Plain numpy views for the hot loop; pandas row access per bar is slow.
+        self._cols = {
+            sym: {c: df[c].to_numpy() for c in ("open", "high", "low", "close")}
+            for sym, df in self.data.items()
+        }
+        self._has_bar_np = {sym: s.to_numpy() for sym, s in self._has_bar.items()}
 
         self.strategy = strategy
         self.portfolio = Portfolio(initial_cash)
@@ -128,18 +189,18 @@ class Backtest:
 
             # A symbol only becomes tradeable once its first real bar arrives.
             bars = {
-                sym: df.iloc[i]
-                for sym, df in self.data.items()
-                if self._has_bar[sym].iloc[i]
+                sym: {c: arr[i] for c, arr in cols.items()}
+                for sym, cols in self._cols.items()
+                if self._has_bar_np[sym][i]
             }
             fills = self.broker.process(ts, bars, self.portfolio.cash, self.portfolio.positions)
             for fill in fills:
                 self.portfolio.apply_fill(fill)
 
             prices = {
-                sym: float(df["close"].iloc[i])
-                for sym, df in self.data.items()
-                if not pd.isna(df["close"].iloc[i])
+                sym: float(cols["close"][i])
+                for sym, cols in self._cols.items()
+                if not np.isnan(cols["close"][i])
             }
             if len(prices) < len(self.data):
                 continue  # some symbol has not started trading yet

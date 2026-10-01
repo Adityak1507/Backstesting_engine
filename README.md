@@ -19,13 +19,24 @@ performance metrics.
 - **Metrics**: total return, CAGR, volatility, Sharpe, Sortino, max drawdown
   and its duration, Calmar, win rate, average win and loss, profit factor, and
   commission paid, with a buy-and-hold benchmark for comparison.
+- **Real market data** from Yahoo Finance via `yfinance` (optional).
+- **Fast parameter sweeps** with a Numba-compiled path for signal-based
+  strategies (optional; falls back to plain Python).
+- **Interactive charts** with Plotly, and a **Streamlit dashboard** (optional).
 
 ## Install
 
 ```bash
-pip install -e ".[dev]"
-pip install matplotlib   # optional, for charts
+pip install -e ".[dev]"     # core engine + pytest
+pip install -e ".[all]"     # everything below
 ```
+
+| Extra | Installs | Enables |
+|---|---|---|
+| `yahoo` | yfinance | `load_yahoo()` |
+| `fast` | numba | compiled `backtester.fast` sweeps |
+| `viz` | matplotlib, plotly | `result.plot()`, `result.plot_interactive()` |
+| `app` | streamlit, plotly, yfinance | the dashboard in `app.py` |
 
 ## Quick start
 
@@ -46,6 +57,16 @@ print(result.summary())
 result.trades        # DataFrame of closed trades
 result.equity        # equity curve (pd.Series)
 result.plot("equity.png")
+```
+
+Use real data and an interactive chart:
+
+```python
+from backtester import Backtest, SmaCrossover, load_yahoo
+
+spy = load_yahoo("SPY", start="2015-01-01")   # adjusted for splits and dividends
+result = Backtest(spy, SmaCrossover(50, 200), commission=0.0005).run()
+result.plot_interactive("spy.html")           # open in a browser: zoom, hover, trade markers
 ```
 
 Or run the example:
@@ -89,6 +110,37 @@ class Breakout(Strategy):
 
 With a single symbol the `symbol` argument can be omitted.
 
+## Dashboard
+
+```bash
+streamlit run app.py
+```
+
+Choose synthetic data, a Yahoo Finance ticker or a CSV upload, pick a strategy
+and costs, and see metrics, an interactive equity/drawdown chart and the trade
+log. The **Parameter sweep** tab grid-searches SMA crossover windows and draws
+a heatmap.
+
+## Fast parameter sweeps (Numba)
+
+The event loop runs Python on every bar, which is flexible but too slow for
+searching thousands of parameter combinations. If a strategy can be written as
+a precomputed signal (1 = long, 0 = flat, -1 = no change), `backtester.fast`
+simulates it in compiled code with **the same execution rules** as `Backtest`
+(next-bar-open fills, slippage, commission, whole shares, cash limit). A test
+checks the two give identical equity curves.
+
+```python
+from backtester.fast import run_signals, sma_grid_search
+
+grid = sma_grid_search(data, range(5, 101), range(20, 301), commission=0.001)
+grid.head()   # one row per (fast, slow), best Sharpe first
+```
+
+On 10 years of daily bars, about 25,000 combinations run in under a second.
+Watch out for overfitting: check the best parameters on data the sweep didn't
+see.
+
 ## How a bar is processed
 
 1. Pending orders fill at this bar's open, or at their limit or stop price if
@@ -100,13 +152,15 @@ With a single symbol the `symbol` argument can be omitted.
 
 ```
 backtester/
-  data.py        CSV loading, validation, synthetic GBM data
+  data.py        CSV and Yahoo Finance loading, validation, synthetic GBM data
   broker.py      orders, cost model, order matching
   portfolio.py   cash, positions, average cost, realised trades
   strategy.py    Strategy base class and Context API
   strategies.py  BuyAndHold, SmaCrossover, RsiMeanReversion
   metrics.py     performance statistics
-  engine.py      Backtest event loop and BacktestResult
+  engine.py      Backtest event loop and BacktestResult (+ charts)
+  fast.py        Numba-compiled signal backtests and grid search
+app.py           Streamlit dashboard
 examples/        runnable example
 tests/           pytest suite
 ```
@@ -124,3 +178,5 @@ pytest
 - No margin, borrow costs or dividends, and short positions are not
   margin-checked.
 - Orders are good-till-cancelled; there are no time-in-force options.
+- The Numba fast path handles single-asset long/flat signals only. Use
+  `Backtest` for anything else.

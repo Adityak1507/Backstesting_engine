@@ -36,11 +36,11 @@ class Context:
 
     def price(self, symbol: Optional[str] = None) -> float:
         """Latest close for the symbol."""
-        return float(self._engine.data[self._sym(symbol)]["close"].iloc[self._i])
+        return float(self._engine._cols[self._sym(symbol)]["close"][self._i])
 
     def has_bar(self, symbol: Optional[str] = None) -> bool:
         """Whether the symbol actually traded on the current bar (vs. forward-filled)."""
-        return bool(self._engine._has_bar[self._sym(symbol)].iloc[self._i])
+        return bool(self._engine._has_bar_np[self._sym(symbol)][self._i])
 
     # --- account ----------------------------------------------------------
     @property
@@ -107,7 +107,7 @@ class Context:
         )
 
     def _prices(self) -> Dict[str, float]:
-        return {s: float(df["close"].iloc[self._i]) for s, df in self._engine.data.items()}
+        return {s: float(cols["close"][self._i]) for s, cols in self._engine._cols.items()}
 
 
 class Strategy:

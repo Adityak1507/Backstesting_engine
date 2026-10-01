@@ -37,6 +37,34 @@ def load_csv(path: str, date_column: str = "date") -> pd.DataFrame:
     return validate_ohlcv(df)
 
 
+def load_yahoo(
+    symbol: str,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    interval: str = "1d",
+) -> pd.DataFrame:
+    """Download split- and dividend-adjusted OHLCV bars from Yahoo Finance.
+
+    Requires the optional `yfinance` package (`pip install -e ".[yahoo]"`).
+    """
+    try:
+        import yfinance as yf
+    except ImportError as exc:
+        raise ImportError("load_yahoo needs yfinance: pip install yfinance") from exc
+
+    df = yf.download(
+        symbol, start=start, end=end, interval=interval, auto_adjust=True, progress=False
+    )
+    if df is None or df.empty:
+        raise ValueError(f"no data returned from Yahoo Finance for {symbol!r}")
+    if isinstance(df.columns, pd.MultiIndex):
+        # Newer yfinance returns (field, ticker) columns even for one ticker.
+        df = df.xs(symbol, axis=1, level=-1) if symbol in df.columns.get_level_values(-1) else df.droplevel(-1, axis=1)
+    if df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+    return validate_ohlcv(df.dropna(how="all"))
+
+
 def generate_gbm(
     n_days: int = 756,
     start_price: float = 100.0,

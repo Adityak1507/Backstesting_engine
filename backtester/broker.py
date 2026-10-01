@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Mapping, Optional
 
 import pandas as pd
 
@@ -75,7 +75,7 @@ class Broker:
     def cancel_all(self, symbol: Optional[str] = None) -> None:
         self.pending = [o for o in self.pending if symbol is not None and o.symbol != symbol]
 
-    def _trigger_price(self, order: Order, bar: pd.Series) -> Optional[float]:
+    def _trigger_price(self, order: Order, bar: Mapping[str, float]) -> Optional[float]:
         """Return the raw (pre-slippage) execution price, or None if not triggered."""
         o, h, l = bar["open"], bar["high"], bar["low"]
         if order.stop_price is not None:
@@ -96,7 +96,7 @@ class Broker:
     def process(
         self,
         timestamp: pd.Timestamp,
-        bars: Dict[str, pd.Series],
+        bars: Dict[str, Mapping[str, float]],
         cash: float,
         positions: Dict[str, float],
     ) -> List[Fill]:
