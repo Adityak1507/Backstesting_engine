@@ -22,7 +22,9 @@ performance metrics.
 - **Real market data** from Yahoo Finance via `yfinance` (optional).
 - **Fast parameter sweeps** with a Numba-compiled path for signal-based
   strategies (optional; falls back to plain Python).
-- **Interactive charts** with Plotly, and a **Streamlit dashboard** (optional).
+- **Web app**: a React + TypeScript frontend on a FastAPI backend, with
+  backtests, an optimizer heatmap, light and dark themes.
+- **Interactive charts** in Python with Plotly (optional).
 
 ## Install
 
@@ -36,7 +38,7 @@ pip install -e ".[all]"     # everything below
 | `yahoo` | yfinance | `load_yahoo()` |
 | `fast` | numba | compiled `backtester.fast` sweeps |
 | `viz` | matplotlib, plotly | `result.plot()`, `result.plot_interactive()` |
-| `app` | streamlit, plotly, yfinance | the dashboard in `app.py` |
+| `api` | fastapi, uvicorn, yfinance, numba | the HTTP API behind the web app |
 
 ## Quick start
 
@@ -110,16 +112,52 @@ class Breakout(Strategy):
 
 With a single symbol the `symbol` argument can be omitted.
 
-## Dashboard
+## Web app
+
+A React frontend (`frontend/`) talks to a FastAPI backend (`api/`).
+
+![Backtest view](docs/backtest.png)
+![Optimizer view](docs/optimize.png)
+
+**Development** (two terminals, hot reload):
 
 ```bash
-streamlit run app.py
+pip install -e ".[api]"
+uvicorn api.main:app --reload            # API on :8000
+
+cd frontend
+npm install
+npm run dev                              # UI on :5173, proxies /api to :8000
 ```
 
-Choose synthetic data, a Yahoo Finance ticker or a CSV upload, pick a strategy
-and costs, and see metrics, an interactive equity/drawdown chart and the trade
-log. The **Parameter sweep** tab grid-searches SMA crossover windows and draws
-a heatmap.
+**Production** (one process): build the UI and FastAPI serves it.
+
+```bash
+cd frontend && npm run build && cd ..
+uvicorn api.main:app --host 0.0.0.0 --port 8000
+```
+
+- **Backtest**: choose synthetic data, a Yahoo Finance ticker or a CSV, a
+  strategy and costs. See KPIs, equity against buy & hold with trade markers,
+  drawdown, full statistics and the trade log.
+- **Optimize**: grid-search SMA crossover windows with the Numba fast path and
+  explore the result as a heatmap (Sharpe, return or drawdown). Click any cell or
+  row to backtest that pair.
+- Press `Ctrl/⌘ + Enter` to run. The theme follows your OS and can be toggled.
+
+### API
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/api/health` | | status, whether Numba is active |
+| GET | `/api/strategies` | | strategies and their parameters |
+| POST | `/api/backtest` | `{data, strategy, costs}` | metrics, equity/drawdown series, trades, fills |
+| POST | `/api/sweep` | `{data, costs, fast_min, fast_max, slow_min, slow_max, step}` | grid of results |
+
+`data` is `{"source": "synthetic", "days", "drift", "volatility", "seed"}`,
+`{"source": "yahoo", "ticker", "start", "end"}` or
+`{"source": "csv", "csv_text", "csv_name"}`. Interactive docs are at
+`/docs` while the server is running.
 
 ## Fast parameter sweeps (Numba)
 
@@ -160,7 +198,8 @@ backtester/
   metrics.py     performance statistics
   engine.py      Backtest event loop and BacktestResult (+ charts)
   fast.py        Numba-compiled signal backtests and grid search
-app.py           Streamlit dashboard
+api/main.py      FastAPI backend
+frontend/        React + TypeScript UI (Vite, Recharts)
 examples/        runnable example
 tests/           pytest suite
 ```
@@ -168,7 +207,8 @@ tests/           pytest suite
 ## Tests
 
 ```bash
-pytest
+pytest                          # engine, fast path and API
+cd frontend && npm run build    # type-checks and builds the UI
 ```
 
 ## Limitations

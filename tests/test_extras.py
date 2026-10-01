@@ -1,6 +1,5 @@
 import sys
 import types
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -8,8 +7,6 @@ import pytest
 
 from backtester import Backtest, SmaCrossover, generate_gbm, load_yahoo
 from backtester.fast import run_signals, sma_grid_search, sma_signal, summary_stats
-
-ROOT = Path(__file__).resolve().parent.parent
 
 
 # --- fast path -------------------------------------------------------------
@@ -102,15 +99,3 @@ def test_plot_interactive_writes_html(tmp_path):
     assert {"Strategy", "Buy & hold", "Buy", "Sell"} <= names
     html = out.read_text()
     assert "<html>" in html and "plotly" in html
-
-
-# --- streamlit -------------------------------------------------------------
-def test_streamlit_app_runs():
-    testing = pytest.importorskip("streamlit.testing.v1")
-    at = testing.AppTest.from_file(str(ROOT / "app.py"), default_timeout=60).run()
-    assert not at.exception
-    assert any(m.label == "Sharpe" for m in at.metric)
-
-    at.button[0].click().run()  # parameter sweep
-    assert not at.exception
-    assert any("parameter pairs" in s.value for s in at.success)

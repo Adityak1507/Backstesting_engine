@@ -32,7 +32,8 @@ def load_csv(path: str, date_column: str = "date") -> pd.DataFrame:
     df = pd.read_csv(path)
     cols = {c.lower(): c for c in df.columns}
     if date_column.lower() not in cols:
-        raise ValueError(f"column {date_column!r} not found in {path}")
+        where = f" in {path}" if isinstance(path, str) else ""
+        raise ValueError(f"column {date_column!r} not found{where}")
     df = df.set_index(cols[date_column.lower()])
     return validate_ohlcv(df)
 
